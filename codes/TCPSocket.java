@@ -9,7 +9,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 public abstract class TCPSocket implements CongestionWindowPlotter {
-    public TCPSocket(String ip, int port) throws Exception {}
+
+
+    public TCPSocket(String ip, int port) throws Exception { }
+
+    public TCPSocket(EnhancedDatagramSocket socket) throws Exception { }
 
     public abstract void send(String pathToFile) throws Exception;
 
