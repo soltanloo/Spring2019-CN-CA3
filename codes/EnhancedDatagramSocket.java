@@ -131,7 +131,7 @@ public class EnhancedDatagramSocket extends DatagramSocket {
         }, SENT_BYTES_SAMPLING_PERIOD_IN_MILLISECONDS);
     }
 
-    public static final int DEFAULT_PAYLOAD_LIMIT_IN_BYTES = 1408;
+    public static final int DEFAULT_PAYLOAD_LIMIT_IN_BYTES = 1480;
     public static final double DEFAULT_LOSS_RATE = 0;
     public static final long DEFAULT_DELAY_IN_MILLISECONDS = 0;
     private static final int SENT_BYTES_SAMPLING_PERIOD_IN_MILLISECONDS = 50;

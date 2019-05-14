@@ -100,9 +100,9 @@ public class TCPPacket {
 
         //add checksum
         temp = (short)0;
-        for(int i=0; i<dl; i++){
-            temp += (short)ba[i+20];
-        }
+//        for(int i=0; i<dl; i++){
+//            temp += (short)ba[i+20];
+//        }
         ba[16] = (byte)(temp & 0xff);
         ba[17] = (byte)((temp >> 8) & 0xff);
 

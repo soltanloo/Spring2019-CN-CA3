@@ -1,5 +1,6 @@
 import java.net.DatagramPacket;
 import java.net.InetAddress;
+import java.util.Random;
 
 public class TCPServerSocketImpl extends TCPServerSocket {
 
@@ -15,14 +16,17 @@ public class TCPServerSocketImpl extends TCPServerSocket {
 
     @Override
     public TCPSocket accept() throws Exception {
+        //TODO: check seqNums and ackNums;
         byte[] receiveData = new byte[20];
         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
         socket.receive(receivePacket);
         dstPort = receivePacket.getPort();
         InetAddress dstAddr = receivePacket.getAddress();
+        TCPPacket r = new TCPPacket(receiveData);
+        int seqNum = new Random().nextInt();
 
         byte[] tcpPacket = new TCPPacket(new byte[0], srcPort, dstPort,
-                1, 2, 1, 0, 0).pack();
+                seqNum, r.getSeqNum() + 1, 1, 0, 0).pack();
         DatagramPacket packet = new DatagramPacket(tcpPacket, tcpPacket.length, dstAddr, dstPort);
         socket.send(packet);
 
@@ -30,7 +34,8 @@ public class TCPServerSocketImpl extends TCPServerSocket {
         receivePacket = new DatagramPacket(receiveData, receiveData.length);
         socket.receive(receivePacket);
 
-        return new TCPSocketImpl(socket);
+
+        return new TCPSocketImpl(socket, seqNum);
     }
 
     @Override
