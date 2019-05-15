@@ -23,7 +23,7 @@ public class TCPServerSocketImpl extends TCPServerSocket {
         dstPort = receivePacket.getPort();
         InetAddress dstAddr = receivePacket.getAddress();
         TCPPacket r = new TCPPacket(receiveData);
-        int seqNum = new Random().nextInt();
+        int seqNum = Math.abs(new Random().nextInt());
 
         byte[] tcpPacket = new TCPPacket(new byte[0], srcPort, dstPort,
                 seqNum, r.getSeqNum() + 1, 1, 0, 0).pack();
@@ -33,9 +33,10 @@ public class TCPServerSocketImpl extends TCPServerSocket {
         receiveData = new byte[20];
         receivePacket = new DatagramPacket(receiveData, receiveData.length);
         socket.receive(receivePacket);
+        r = new TCPPacket(receiveData);
 
 
-        return new TCPSocketImpl(socket, seqNum);
+        return new TCPSocketImpl(socket, seqNum, r.getSeqNum() + 1);
     }
 
     @Override

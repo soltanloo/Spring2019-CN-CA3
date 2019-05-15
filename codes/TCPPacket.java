@@ -35,14 +35,14 @@ public class TCPPacket {
         for(int i=0; i<dataLength; i++)
             d[i] = packet[i+20];
         this.data = d;
-        this.srcPort = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getShort(0);
-        this.dstPort = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getShort(2);
+        this.srcPort = ((packet[1] << 8) | (packet[0] & 0xFF)) & 0xffff;
+        this.dstPort = ((packet[3] << 8) | (packet[2] & 0xFF)) & 0xffff;
         this.seqNum = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getInt(4);
         this.ackNum = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getInt(8);
-        this.SYN = (int)packet[13];
-        this.ACK = (int)packet[12];
-        this.winSize = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getShort(14);
-        this.dataLen = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getShort(18);
+        this.SYN = (int) packet[13];
+        this.ACK = (int) packet[12];
+        this.winSize = ((packet[15] << 8) | (packet[14] & 0xFF)) & 0xffff;
+        this.dataLen = ((packet[19] << 8) | (packet[18] & 0xFF)) & 0xffff;
     }
 
     public byte[] pack() {
@@ -99,12 +99,12 @@ public class TCPPacket {
         ba[15] = (byte)((temp >> 8) & 0xff);
 
         //add checksum
-        temp = (short)0;
+//        temp = (short)0;
 //        for(int i=0; i<dl; i++){
 //            temp += (short)ba[i+20];
 //        }
-        ba[16] = (byte)(temp & 0xff);
-        ba[17] = (byte)((temp >> 8) & 0xff);
+//        ba[16] = (byte)(temp & 0xff);
+//        ba[17] = (byte)((temp >> 8) & 0xff);
 
         temp = (short)dl;
         //add data_length
