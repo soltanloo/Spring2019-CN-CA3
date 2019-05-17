@@ -84,9 +84,12 @@ public class TCPSocketImpl extends TCPSocket {
             for (int i = nextToSend; i < base + windowSize; i++) {
                 byte[] chunkToSend = chunks.get(nextToSend);
                 seqNumToChunk.put(seqNum, nextToSend);
-                byte[] packet = new TCPPacket(chunkToSend, srcPort, dstPort, seqNum,
-                        -1, 0, 0, chunkToSend.length).pack();
-                DatagramPacket dp = new DatagramPacket(packet, packet.length, dstIP, dstPort);
+                TCPPacket packet = new TCPPacket(chunkToSend, srcPort, dstPort, seqNum,
+                        -1, 0, 0, chunkToSend.length);
+                if(nextToSend == chunks.size()-1)
+                    packet.setLastPacket();
+                byte[] packetByte = packet.pack();
+                DatagramPacket dp = new DatagramPacket(packetByte, packetByte.length, dstIP, dstPort);
                 socket.send(dp);
                 nextToSend += 1;
                 seqNum += chunkToSend.length;
