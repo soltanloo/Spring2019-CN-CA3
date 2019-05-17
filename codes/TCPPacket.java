@@ -1,4 +1,4 @@
-import com.sun.org.apache.xpath.internal.operations.Bool;
+//import com.sun.org.apache.xpath.internal.operations.Bool;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,7 +17,6 @@ public class TCPPacket {
     private int ACK;
     private int winSize;
     private int dataLen;
-    private boolean lastPacket;
 
     public TCPPacket(byte[] data, int srcPort, int dstPort, int seqNum, int ackNum, int SYN,
                      int winSize, int dataLen) {
@@ -30,7 +29,6 @@ public class TCPPacket {
         this.SYN = SYN;
         this.winSize = winSize;
         this.dataLen = dataLen;
-        this.lastPacket = Boolean.FALSE;
     }
 
     public TCPPacket(byte[] packet) {
@@ -47,7 +45,6 @@ public class TCPPacket {
         this.ACK = (int) packet[12];
         this.winSize = ((packet[15] << 8) | (packet[14] & 0xFF)) & 0xffff;
         this.dataLen = ((packet[19] << 8) | (packet[18] & 0xFF)) & 0xffff;
-        this.lastPacket = Boolean.FALSE;
     }
 
     public byte[] pack() {
@@ -227,10 +224,10 @@ public class TCPPacket {
     }
 
     public boolean isLastPacket() {
-        return lastPacket;
+        return SYN == 1;
     }
 
     public void setLastPacket() {
-        this.lastPacket = Boolean.TRUE;
+        this.SYN = 1;
     }
 }

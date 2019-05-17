@@ -1,4 +1,4 @@
-import com.sun.org.apache.xpath.internal.operations.Bool;
+//import com.sun.org.apache.xpath.internal.operations.Bool;
 
 import java.io.*;
 import java.lang.reflect.Array;
@@ -74,7 +74,7 @@ public class TCPSocketImpl extends TCPSocket {
         ArrayList<byte[]> chunks = new ArrayList<>();
 
         FileInputStream file = new FileInputStream(pathToFile);
-        byte[] chunk = new byte[socket.getPayloadLimitInBytes() - 20];
+        byte[] chunk = new byte[socket.getPayloadLimitInBytes() - 30];
         while((file.read(chunk))!=-1){
             chunks.add(chunk);
         }
@@ -263,10 +263,12 @@ public class TCPSocketImpl extends TCPSocket {
             }
             //send ACK
             //check this!!!
-            TCPPacket lastReceived = new TCPPacket(allPackets.get(allPackets.size() - 1).pack());
-            lastReceived.setAckNum(lastAckNumber);
-            lastReceived.setWinSize(recBufferSize - receiveBuffer.size());
-            byte[] ackTcpPacket = (lastReceived).pack();
+//            TCPPacket lastReceived = new TCPPacket(allPackets.get(allPackets.size() - 1).pack());
+//            lastReceived.setAckNum(lastAckNumber);
+//            lastReceived.setWinSize(recBufferSize - receiveBuffer.size());
+            TCPPacket ackPacket = new TCPPacket(null, srcPort, dstPort, 0, lastAckNumber, 0,
+                    recBufferSize - receiveBuffer.size(), 0);
+            byte[] ackTcpPacket = (ackPacket).pack();
             DatagramPacket ackDatagramPacket = new DatagramPacket(ackTcpPacket, ackTcpPacket.length,
                     dstIP, dstPort);
             socket.send(ackDatagramPacket);
