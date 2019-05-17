@@ -1,15 +1,15 @@
+import com.sun.org.apache.xpath.internal.operations.Bool;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 public class TCPSocketImpl extends TCPSocket {
 
@@ -25,6 +25,8 @@ public class TCPSocketImpl extends TCPSocket {
     private int dstPort;
     private int srcPort;
     private State CCState = State.SLOW_START;
+
+    private Integer recBufferSize = 10240;
 
     public TCPSocketImpl(String ip, int port) throws Exception {
         //TODO: check seqNums and ackNums;
@@ -194,37 +196,124 @@ public class TCPSocketImpl extends TCPSocket {
         }
     }
 
+    private TCPPacket receivePacket() throws Exception {
+        byte[] receiveData = new byte[socket.getPayloadLimitInBytes()];
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+        socket.receive(receivePacket);
+        return new TCPPacket(receiveData);
+    }
+
+    private Integer sortAndFindInOrderItemCount(ArrayList<TCPPacket> list) {
+        list.sort(Comparator.comparing(TCPPacket::getSeqNum));
+        Integer count = 0;
+        Integer seqNumber;
+        seqNumber = this.expectedSeqNum;
+        if(list.isEmpty())
+            return 0;
+        seqNumber = list.get(0).getSeqNum();
+        for (TCPPacket item : list) {
+            if(item.getSeqNum() == seqNumber) {
+                count++;
+                seqNumber += item.getDataLen();
+            }
+            else
+                break;
+        }
+        return count;
+    }
+
+
     @Override
     public void receive(String pathToFile) throws Exception {
         //TODO: rwnd;
-        byte[] receiveData = new byte[socket.getPayloadLimitInBytes()];
-        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-        TCPPacket lastReceived, lastSent;
-        lastSent = new TCPPacket(new byte[0], socket.getLocalPort(), receivePacket.getPort(),
-                seqNum, -1, 0, 10, 0);
+        ArrayList<TCPPacket> allPackets = new ArrayList<>();
+        ArrayList<TCPPacket> receiveBuffer = new ArrayList<>();
+        ArrayList<Integer> receivedSequenceNumbers = new ArrayList<>();
+        Integer lastAckNumber = -1;
+        Boolean lastPacket = Boolean.FALSE;
+
         while (true) {
-            socket.receive(receivePacket);
-            lastReceived = new TCPPacket(receiveData);
-            System.out.println(lastReceived.toString());
-            System.out.println("Expected seq: " + expectedSeqNum);
-            if (lastReceived.getSeqNum() == expectedSeqNum) {
-                lastSent = new TCPPacket(new byte[0], socket.getLocalPort(), receivePacket.getPort(),
-                        seqNum, lastReceived.getSeqNum() + 1, 0, 10, 0);
-                byte[] tcpPacket = lastSent.pack();
-                DatagramPacket packet = new DatagramPacket(tcpPacket, tcpPacket.length,
-                        receivePacket.getAddress(), receivePacket.getPort());
-                socket.send(packet);
-                expectedSeqNum += lastReceived.getDataLen();
-                seqNum++;
-            } else {
-                //TODO: send a packet with ack for last correctly received packet;
-                byte[] tcpPacket = lastSent.pack();
-                DatagramPacket packet = new DatagramPacket(tcpPacket, tcpPacket.length,
-                        receivePacket.getAddress(), receivePacket.getPort());
-                socket.send(packet);
-                seqNum++;
+            TCPPacket receivedPacket = receivePacket();
+            Integer currentSeqNumber = receivedPacket.getSeqNum();
+            if (!receivedSequenceNumbers.contains(currentSeqNumber)) {
+                receiveBuffer.add(receivedPacket);
+                receivedSequenceNumbers.add(receivedPacket.getSeqNum());
             }
+            Integer inOrderBufferedItemsCount =  sortAndFindInOrderItemCount(receiveBuffer);
+
+            System.out.println("$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+            System.out.println("Packet Received:");
+            System.out.println("Expected Seq. numebr:" + expectedSeqNum);
+            System.out.println("Packet Seq. Num.: " + receivedPacket.getSeqNum());
+            System.out.println("---------------------------");
+
+            if (inOrderBufferedItemsCount > 0) {
+                lastAckNumber = receiveBuffer.get(inOrderBufferedItemsCount-1).getSeqNum();
+                ArrayList<TCPPacket> subBuffer = new ArrayList<>(receiveBuffer.subList(0, inOrderBufferedItemsCount));
+                receiveBuffer.removeAll(subBuffer);
+                allPackets.addAll(subBuffer);
+                expectedSeqNum += allPackets.get(allPackets.size()-1).getDataLen();
+            }
+            //send ACK
+            //check this!!!
+            TCPPacket lastReceived = new TCPPacket(allPackets.get(allPackets.size()-1).pack());
+            lastReceived.setAckNum(lastAckNumber);
+            lastReceived.setWinSize(recBufferSize - receiveBuffer.size());
+            byte[] ackTcpPacket = (lastReceived).pack();
+            DatagramPacket ackDatagramPacket = new DatagramPacket(ackTcpPacket, ackTcpPacket.length,
+                    dstIP, dstPort);
+            socket.send(ackDatagramPacket);
+
+            System.out.println("###########################");
+            System.out.println("ACK Sent:");
+            System.out.println("ACK Number is:" + lastAckNumber);
+            System.out.println("Window Size is:" + (recBufferSize - receiveBuffer.size()));
+            System.out.println("###########################");
+
+            //check for last packet
+
+//            for (TCPPacket item : allPackets) {
+//                if(item.isLastPacket()) {
+//                lastPacket = Boolean.TRUE;
+//                break;
+//            }
+//
+//            if (lastPacket)
+//                System.out.print(allPackets.size() + "Packets Received!");
+//                break;
+            allPackets.sort(Comparator.comparing(TCPPacket::getSeqNum));
+            //write to file
         }
+
+//prev code
+//        byte[] receiveData = new byte[socket.getPayloadLimitInBytes()];
+//        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+//        TCPPacket lastReceived, lastSent;
+//        lastSent = new TCPPacket(new byte[0], socket.getLocalPort(), receivePacket.getPort(),
+//                seqNum, -1, 0, 10, 0);
+//        while (true) {
+//            socket.receive(receivePacket);
+//            lastReceived = new TCPPacket(receiveData);
+//            System.out.println(lastReceived.toString());
+//            System.out.println("Expected seq: " + expectedSeqNum);
+//            if (lastReceived.getSeqNum() == expectedSeqNum) {
+//                lastSent = new TCPPacket(new byte[0], socket.getLocalPort(), receivePacket.getPort(),
+//                        seqNum, lastReceived.getSeqNum() + 1, 0, 10, 0);
+//                byte[] tcpPacket = lastSent.pack();
+//                DatagramPacket packet = new DatagramPacket(tcpPacket, tcpPacket.length,
+//                        receivePacket.getAddress(), receivePacket.getPort());
+//                socket.send(packet);
+//                expectedSeqNum += lastReceived.getDataLen();
+//                seqNum++;
+//            } else {
+//                //TODO: send a packet with ack for last correctly received packet;
+//                byte[] tcpPacket = lastSent.pack();
+//                DatagramPacket packet = new DatagramPacket(tcpPacket, tcpPacket.length,
+//                        receivePacket.getAddress(), receivePacket.getPort());
+//                socket.send(packet);
+//                seqNum++;
+//            }
+//        }
     }
 
     @Override
