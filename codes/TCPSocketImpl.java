@@ -7,6 +7,7 @@ import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 
@@ -16,7 +17,7 @@ public class TCPSocketImpl extends TCPSocket {
     public enum State {
         SLOW_START, CONGESTION_AVOIDANCE, FAST_RECOVERY
     }
-    private int SSThreshold = 64;
+    private int SSThreshold = 42;
     private float windowSize = 1;
     private int seqNum;
     private int expectedSeqNum;
@@ -63,12 +64,14 @@ public class TCPSocketImpl extends TCPSocket {
 
     @Override
     public void send(String pathToFile) throws Exception {
-//        socket.setSoTimeout(1000);
+        socket.setSoTimeout(1000);
+        HashMap<Integer, Integer> seqNumToChunk = new HashMap<>();
         int base = 0;
         int nextToSend = 0;
         boolean dupAck = false;
         int lastAckNum = -1;
         int dupAckCount = 0;
+        int highWater = 0;
         ArrayList<byte[]> chunks = new ArrayList<>();
 
         FileInputStream file = new FileInputStream(pathToFile);
@@ -81,20 +84,23 @@ public class TCPSocketImpl extends TCPSocket {
         while (nextToSend < chunks.size()) {
             for (int i = nextToSend; i < base + windowSize; i++) {
                 byte[] chunkToSend = chunks.get(nextToSend);
+                seqNumToChunk.put(seqNum, nextToSend);
                 byte[] packet = new TCPPacket(chunkToSend, srcPort, dstPort, seqNum,
                         -1, 0, 0, chunkToSend.length).pack();
                 DatagramPacket dp = new DatagramPacket(packet, packet.length, dstIP, dstPort);
                 socket.send(dp);
                 nextToSend += 1;
                 seqNum += chunkToSend.length;
-                System.out.println(base);
-                System.out.println(nextToSend);
-                System.out.println(seqNum);
+                System.out.println("###########################");
+                System.out.println("Base: " + base);
+                System.out.println("Next To Send: " + nextToSend);
+                System.out.println("Seq. Num.: " + seqNum);
+                System.out.println("---------------------------");
                 if (nextToSend >= chunks.size())
                     break;
             }
 
-            Boolean timedOut = false;
+            boolean shouldRetransmit = false;
             try {
                 byte[] receiveData = new byte[20];
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
@@ -103,69 +109,95 @@ public class TCPSocketImpl extends TCPSocket {
                 dupAck = lastAckNum == r.getAckNum();
                 lastAckNum = r.getAckNum();
                 System.out.println(r.toString());
+                if (dupAckCount == 3 && CCState != State.FAST_RECOVERY) {
+                    shouldRetransmit = true;
+                }
+
+                switch (CCState) {
+                    case SLOW_START:
+                        if (dupAckCount == 3) {
+                            SSThreshold = (int) windowSize / 2;
+                            windowSize = SSThreshold + 3;
+                            onWindowChange();
+                        } else if (dupAck) {
+                            dupAckCount++;
+                        } else if (!dupAck) {
+                            windowSize++;
+                            onWindowChange();
+                            dupAckCount = 0;
+                        }
+                        if (windowSize >= SSThreshold) {
+                            CCState = State.CONGESTION_AVOIDANCE;
+                        }
+                        break;
+                    case CONGESTION_AVOIDANCE:
+                        if (dupAckCount == 3) {
+                            SSThreshold = (int) windowSize / 2;
+                            windowSize = SSThreshold + 3;
+                            onWindowChange();
+                        } else if (dupAck) {
+                            dupAckCount++;
+                        } else if (!dupAck) {
+                            windowSize += 1 / windowSize;
+                            onWindowChange();
+                            dupAckCount = 0;
+                        }
+                        break;
+                    case FAST_RECOVERY:
+                        if (dupAck) {
+                            dupAckCount++;
+                            windowSize++;
+                            onWindowChange();
+                        } else if (!dupAck) {
+                            windowSize = SSThreshold;
+                            onWindowChange();
+                            dupAckCount = 0;
+                            if (lastAckNum >= highWater) {
+
+                            } else {
+                                //partial ack
+                                shouldRetransmit = true;
+                            }
+                        }
+                        break;
+                }
+
                 //FIXME
                 base++;
 
             } catch (SocketTimeoutException ste) {
                 //TODO: handle timeout;
                 nextToSend = base;
-                timedOut = true;
+                SSThreshold = (int) windowSize / 2;
+                windowSize = 1;
+                dupAckCount = 0;
+                onWindowChange();
+                shouldRetransmit = true;
             }
 
-            switch (CCState) {
-                case SLOW_START:
-                    if (timedOut) {
-                        SSThreshold = (int) windowSize / 2;
-                        windowSize = 1;
-                        dupAckCount = 0;
-                    } else if (dupAckCount == 3) {
-                        SSThreshold = (int) windowSize / 2;
-                        windowSize = SSThreshold + 3;
-                    } else if (dupAck) {
-                        dupAckCount++;
-                    } else if (!dupAck) {
-                        windowSize++;
-                        dupAckCount = 0;
-                    } else if (windowSize >= SSThreshold) {
-                        CCState = State.CONGESTION_AVOIDANCE;
-                    }
-                    break;
-                case CONGESTION_AVOIDANCE:
-                    if (timedOut) {
-                        SSThreshold = (int) windowSize / 2;
-                        windowSize = 1;
-                        dupAckCount = 0;
-                    } else if (dupAckCount == 3) {
-                        SSThreshold = (int) windowSize / 2;
-                        windowSize = SSThreshold + 3;
-                    } else if (dupAck) {
-                        dupAckCount++;
-                    } else if (!dupAck) {
-                        windowSize += 1 / windowSize;
-                        dupAckCount = 0;
-                    }
-                    break;
-                case FAST_RECOVERY:
-                    if (timedOut) {
-                        SSThreshold = (int) windowSize / 2;
-                        windowSize = 1;
-                        dupAckCount = 0;
-                    } else if (dupAck) {
-                        dupAckCount++;
-                        windowSize++;
-                    } else if (!dupAck) {
-                        windowSize = SSThreshold;
-                        dupAckCount = 0;
-                    }
-                    break;
+            if (shouldRetransmit) {
+                int retransmitChunkNumber = seqNumToChunk.get(lastAckNum) + 1;
+                byte[] chunkToSend = chunks.get(retransmitChunkNumber);
+                byte[] packet = new TCPPacket(chunkToSend, srcPort, dstPort,
+                        lastAckNum + socket.getPayloadLimitInBytes(),
+                        -1, 0, 0, chunkToSend.length).pack();
+                DatagramPacket dp = new DatagramPacket(packet, packet.length, dstIP, dstPort);
+                socket.send(dp);
             }
+
+
+
+            System.out.println("SSThreshold: " + SSThreshold);
+            System.out.println("Window Size: " + windowSize);
+            System.out.println(CCState);
+            System.out.println("###########################");
         }
     }
 
     @Override
     public void receive(String pathToFile) throws Exception {
-        //FIXME: rwnd;
-        byte[] receiveData = new byte[1500];
+        //TODO: rwnd;
+        byte[] receiveData = new byte[socket.getPayloadLimitInBytes()];
         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
         TCPPacket lastReceived, lastSent;
         lastSent = new TCPPacket(new byte[0], socket.getLocalPort(), receivePacket.getPort(),
