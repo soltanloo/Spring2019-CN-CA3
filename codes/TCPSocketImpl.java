@@ -19,6 +19,8 @@ public class TCPSocketImpl extends TCPSocket {
     private int seqNum;
     private int expectedSeqNum;
     private InetAddress dstIP;
+    private InetAddress receiverDstIP;
+    private int receiverDstPort;
     private int dstPort;
     private int srcPort;
     private State CCState = State.SLOW_START;
@@ -200,6 +202,10 @@ public class TCPSocketImpl extends TCPSocket {
         byte[] receiveData = new byte[socket.getPayloadLimitInBytes()];
         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
         socket.receive(receivePacket);
+        receiverDstIP = receivePacket.getAddress();
+        receiverDstPort = receivePacket.getPort();
+        System.out.println(receiverDstIP.toString());
+        System.out.println(receiverDstPort);
         return new TCPPacket(receiveData);
     }
 
@@ -266,11 +272,11 @@ public class TCPSocketImpl extends TCPSocket {
 //            TCPPacket lastReceived = new TCPPacket(allPackets.get(allPackets.size() - 1).pack());
 //            lastReceived.setAckNum(lastAckNumber);
 //            lastReceived.setWinSize(recBufferSize - receiveBuffer.size());
-            TCPPacket ackPacket = new TCPPacket(null, srcPort, dstPort, 0, lastAckNumber, 0,
+            TCPPacket ackPacket = new TCPPacket(new byte[0], srcPort, dstPort, 0, lastAckNumber, 0,
                     recBufferSize - receiveBuffer.size(), 0);
             byte[] ackTcpPacket = (ackPacket).pack();
             DatagramPacket ackDatagramPacket = new DatagramPacket(ackTcpPacket, ackTcpPacket.length,
-                    dstIP, dstPort);
+                    receiverDstIP, receiverDstPort);
             socket.send(ackDatagramPacket);
 
             System.out.println("###########################");
