@@ -25,7 +25,7 @@ public class TCPSocketImpl extends TCPSocket {
     private int srcPort;
     private State CCState = State.SLOW_START;
 
-    private Integer recBufferSize = 10240;
+    private Integer recBufferSize = 100;
 
     public TCPSocketImpl(String ip, int port) throws Exception {
         //TODO: check seqNums and ackNums;
@@ -73,6 +73,8 @@ public class TCPSocketImpl extends TCPSocket {
         int lastAckNum = -1;
         int dupAckCount = 0;
         int highWater = 0;
+        int flightSize = 0;
+        float prevWindowSize = windowSize;
         ArrayList<byte[]> chunks = new ArrayList<>();
 
 
@@ -86,6 +88,14 @@ public class TCPSocketImpl extends TCPSocket {
         file.close();
 
         while (nextToSend < chunks.size()) {
+//            if (CCState == State.FAST_RECOVERY) {
+//                if (flightSize >= windowSize) break;
+//            } else {
+//                if (seqNumToChunk.get(nextToSend - 1) - seqNumToChunk.get(lastAckNum) >= windowSize) break;
+//            }
+            System.out.println("Base: " + base);
+            System.out.println("Window Size: " + windowSize);
+            System.out.println("NextToSend: " + nextToSend);
             for (int i = nextToSend; i < base + windowSize; i++) {
                 byte[] chunkToSend = (byte[]) chunks.get(nextToSend);
                 seqNumToChunk.put(seqNum, nextToSend);
@@ -96,6 +106,7 @@ public class TCPSocketImpl extends TCPSocket {
                 byte[] packetByte = packet.pack();
                 DatagramPacket dp = new DatagramPacket(packetByte, packetByte.length, dstIP, dstPort);
                 socket.send(dp);
+//                flightSize++;
                 nextToSend += 1;
                 seqNum += chunkToSend.length;
                 System.out.println("###########################");
@@ -113,69 +124,77 @@ public class TCPSocketImpl extends TCPSocket {
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
                 socket.receive(receivePacket);
                 TCPPacket r = new TCPPacket(receiveData);
-                dupAck = lastAckNum == r.getAckNum();
-                lastAckNum = r.getAckNum();
                 System.out.println(r.toString());
-                if (dupAckCount == 3 && CCState != State.FAST_RECOVERY) {
-                    shouldRetransmit = true;
+                State nextState = CCState;
+//                dupAck = lastAckNum == r.getAckNum();
+                int rwnd = r.getWinSize();
+//                flightSize -= seqNumToChunk.get(r.getAckNum()) - seqNumToChunk.get(lastAckNum);
+
+                if (lastAckNum == r.getAckNum()) {
+                    dupAck = true;
+                    dupAckCount++;
+                    System.out.println("DupAckCount: " + dupAckCount);
+                    if (dupAckCount == 3 && CCState != State.FAST_RECOVERY) {
+                        System.out.println("Triple DupAck!");
+                        shouldRetransmit = true;
+                        SSThreshold = Math.max((int)(windowSize / 2), 2);
+                        windowSize = SSThreshold + 3;
+                        onWindowChange();
+//                        flightSize -= 1;
+                        highWater = nextToSend - 1;
+                        nextState = CCState.FAST_RECOVERY;
+                    }
+                } else {
+                    dupAckCount = 0;
                 }
+
+
+
 
                 switch (CCState) {
                     case SLOW_START:
-                        if (dupAckCount == 3) {
-                            SSThreshold = (int) windowSize / 2;
-                            windowSize = SSThreshold + 3;
-                            onWindowChange();
-                        } else if (dupAck) {
-                            dupAckCount++;
-                        } else if (!dupAck) {
+                        if (!dupAck) {
                             windowSize++;
                             onWindowChange();
                             dupAckCount = 0;
                         }
                         if (windowSize >= SSThreshold) {
-                            CCState = State.CONGESTION_AVOIDANCE;
+                            prevWindowSize = windowSize;
+                            nextState = State.CONGESTION_AVOIDANCE;
                         }
                         break;
                     case CONGESTION_AVOIDANCE:
-                        if (dupAckCount == 3) {
-                            SSThreshold = (int) windowSize / 2;
-                            windowSize = SSThreshold + 3;
-                            onWindowChange();
-                        } else if (dupAck) {
-                            dupAckCount++;
-                        } else if (!dupAck) {
-                            windowSize += 1 / windowSize;
+                        if (!dupAck) {
+                            windowSize += 1 / prevWindowSize;
                             onWindowChange();
                             dupAckCount = 0;
                         }
                         break;
                     case FAST_RECOVERY:
-                        if (dupAck) {
-                            dupAckCount++;
-                            windowSize++;
-                            onWindowChange();
-                        } else if (!dupAck) {
+                        if (!dupAck) {
                             windowSize = SSThreshold;
                             onWindowChange();
                             dupAckCount = 0;
-                            if (lastAckNum >= highWater) {
-
-                            } else {
-                                //partial ack
+                            if (seqNumToChunk.get(lastAckNum) < highWater) {
+                                windowSize -= seqNumToChunk.get(r.getAckNum()) - seqNumToChunk.get(lastAckNum) + 1;
+                                windowSize = windowSize > 0 ? windowSize : 0;
                                 shouldRetransmit = true;
+                            } else {
+                                windowSize = SSThreshold;
+                                prevWindowSize = windowSize;
+                                nextState = CCState.CONGESTION_AVOIDANCE;
                             }
                         }
                         break;
                 }
-
-                //FIXME
-                base++;
+                windowSize = Math.min(windowSize, rwnd);
+                lastAckNum = r.getAckNum() > lastAckNum ? r.getAckNum() : lastAckNum;
+                CCState = nextState;
 
             } catch (SocketTimeoutException ste) {
                 //TODO: handle timeout;
                 nextToSend = base;
-                SSThreshold = (int) windowSize / 2;
+                SSThreshold = Math.max((int) windowSize / 2, 2);
                 windowSize = 1;
                 dupAckCount = 0;
                 onWindowChange();
@@ -186,10 +205,15 @@ public class TCPSocketImpl extends TCPSocket {
                 int retransmitChunkNumber = seqNumToChunk.get(lastAckNum) + 1;
                 byte[] chunkToSend = chunks.get(retransmitChunkNumber);
                 byte[] packet = new TCPPacket(chunkToSend, srcPort, dstPort,
-                        lastAckNum + socket.getPayloadLimitInBytes(),
+                        lastAckNum + chunkToSend.length,
                         -1, 0, 0, chunkToSend.length).pack();
+                int seq = lastAckNum + chunkToSend.length;
+                System.out.println("Retransmitted " + seq);
                 DatagramPacket dp = new DatagramPacket(packet, packet.length, dstIP, dstPort);
                 socket.send(dp);
+//                flightSize += 1;
+            } else {
+                base++;
             }
 
 
@@ -219,7 +243,11 @@ public class TCPSocketImpl extends TCPSocket {
         seqNumber = this.expectedSeqNum;
         if(list.isEmpty())
             return 0;
-        seqNumber = list.get(0).getSeqNum();
+//        seqNumber = list.get(0).getSeqNum();
+//        for (TCPPacket packet :
+//                list) {
+//            System.out.println(packet.getSeqNum());
+//        }
         for (TCPPacket item : list) {
             if(item.getSeqNum() == seqNumber) {
                 count++;
@@ -235,7 +263,6 @@ public class TCPSocketImpl extends TCPSocket {
         new File(pathToFile).delete();
         try (FileOutputStream fileStream = new FileOutputStream(pathToFile)) {
             for (TCPPacket item : list) {
-                System.out.println(new String(item.getData()));
                 fileStream.write(item.getData());
             }
         }
@@ -255,9 +282,13 @@ public class TCPSocketImpl extends TCPSocket {
             Integer currentSeqNumber = receivedPacket.getSeqNum();
             if (!receivedSequenceNumbers.contains(currentSeqNumber)) {
                 receiveBuffer.add(receivedPacket);
+                System.out.println("LEN");
                 receivedSequenceNumbers.add(receivedPacket.getSeqNum());
+                System.out.println(receiveBuffer.size());
+                System.out.println(receivedSequenceNumbers.size());
             }
             Integer inOrderBufferedItemsCount = sortAndFindInOrderItemCount(receiveBuffer);
+            System.out.println("Inorder count: " + inOrderBufferedItemsCount);
 
             System.out.println("$$$$$$$$$$$$$$$$$$$$$$$$$$$");
             System.out.println("Packet Received:");
