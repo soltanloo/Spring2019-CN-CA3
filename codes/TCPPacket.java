@@ -32,7 +32,7 @@ public class TCPPacket {
     }
 
     public TCPPacket(byte[] packet) {
-        short dataLength = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).getShort(18);
+        int dataLength = ((packet[19] << 8) | (packet[18] & 0xFF)) & 0xffff;
         byte[] d = new byte[dataLength];
         for(int i=0; i<dataLength; i++)
             d[i] = packet[i+20];

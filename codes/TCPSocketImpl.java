@@ -75,16 +75,19 @@ public class TCPSocketImpl extends TCPSocket {
         int highWater = 0;
         ArrayList<byte[]> chunks = new ArrayList<>();
 
+
         FileInputStream file = new FileInputStream(pathToFile);
-        byte[] chunk = new byte[socket.getPayloadLimitInBytes() - 30];
-        while((file.read(chunk))!=-1){
+        while(true){
+            byte[] chunk = new byte[socket.getPayloadLimitInBytes() - 20];
+            if(file.read(chunk) < 0)
+                break;
             chunks.add(chunk);
         }
         file.close();
 
         while (nextToSend < chunks.size()) {
             for (int i = nextToSend; i < base + windowSize; i++) {
-                byte[] chunkToSend = chunks.get(nextToSend);
+                byte[] chunkToSend = (byte[]) chunks.get(nextToSend);
                 seqNumToChunk.put(seqNum, nextToSend);
                 TCPPacket packet = new TCPPacket(chunkToSend, srcPort, dstPort, seqNum,
                         -1, 0, 0, chunkToSend.length);
@@ -231,8 +234,10 @@ public class TCPSocketImpl extends TCPSocket {
     public void writeToFile(ArrayList<TCPPacket> list, String pathToFile) throws IOException {
         new File(pathToFile).delete();
         try (FileOutputStream fileStream = new FileOutputStream(pathToFile)) {
-            for (TCPPacket item : list)
+            for (TCPPacket item : list) {
+                System.out.println(new String(item.getData()));
                 fileStream.write(item.getData());
+            }
         }
     }
 
